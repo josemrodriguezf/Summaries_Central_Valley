@@ -1,0 +1,135 @@
+---
+title: "water blog"
+output: html_document
+---
+
+
+```{r}
+library(tidyverse)
+library(XML)
+library(rvest)
+# library(quantmod)
+# library(blscrapeR)
+library(ggplot2)
+library(dplyr)
+library(DT)
+library(RColorBrewer)
+library(ggthemes)
+library(scales)
+library(wesanderson)
+library(directlabels)
+library(grid)
+```
+
+
+```{r}
+names <- read_csv("names2.csv")
+names2  <- read_csv("names3.csv")
+```
+
+
+#Bring NASS
+```{r}
+#All years data
+link <- "https://www.nass.usda.gov"
+list_links <- read_html("https://www.nass.usda.gov/Statistics_by_State/California/Publications/AgComm/index.php") %>% html_nodes("a") %>% html_attr("href")
+list_links <- grep(".csv",list_links,value=TRUE)
+colnames <- c('Year','Commodity Code','Crop','County Code','County','Acres','Yield','Production','Price','Unit','Value')
+list_links <- list_links[-3]
+all_data <- lapply(list_links, function(i) read_csv(paste(link,i,sep=""),col_names = FALSE))%>%bind_rows()%>%set_names(colnames)%>%filter(!grepl("Year|year",Year))
+```
+
+
+#Put group names
+```{r}
+group_data <- all_data%>%left_join(names,by="Commodity Code")%>%drop_na()%>%select(Year,"Commodity Code",County,Acres,Yield,Price,`Crop Name`,Group_name,Value,`County Code`,'Crop')
+group_data$Acres <-  as.numeric(group_data$Acres)
+group_data$Price <-  as.numeric(group_data$Price)
+group_data$Yield <-  as.numeric(group_data$Yield)
+group_data$Value <-  as.numeric(group_data$Value)
+group_data$Group_name <- as.character(group_data$Group_name)
+```
+
+
+```{r}
+group_data2 <- all_data%>%left_join(names2,by="Commodity Code")%>%drop_na()%>%select(Year,"Commodity Code",County,Acres,Yield,Price,`Crop Name`,Group_name,Value,`County Code`,'Crop')
+group_data$Acres <-  as.numeric(group_data$Acres)
+group_data$Price <-  as.numeric(group_data$Price)
+group_data$Yield <-  as.numeric(group_data$Yield)
+group_data$Value <-  as.numeric(group_data$Value)
+```
+
+
+```{r}
+n <- 23
+qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+```
+
+```{r}
+library(tidyverse)
+library(ggthemes)
+
+theme_set(
+  theme_pander() +
+    theme(text = element_text(family = "Gill Sans"),
+          panel.background = element_rect(color = "black")))
+```
+
+
+```{r}
+df <- data.frame(name = c("Dry & Critical Dry","Dry & Critical Dry","Dry & Critical Dry","Dry & Critical Dry","Dry & Critical Dry","Dry & Critical Dry"),
+                   start = c(1990,1994,2001,2004,2007,2012),
+                   end = c(1992,1994,2002,2004,2008,2016))%>%mutate(median_x = start + floor((end-start)/2))
+                          
+colors <- c("coral2","coral2","coral2","coral2","coral2","coral2")                
+```
+
+
+```{r}
+Type <- tibble(
+  Group_name = c("Alfalfa","Corn","Cotton","DryBeans","Field","Rice","Grain","Safflower","SugarBeets","TruckCrops","Pasture","Subtropicals","OtherDeciduous","Almonds&Pistachios","FreshTomatoes","Potatoes","Cucurbits","Onions&Garlic","ProcessingTomatoes","Vine"),
+  Type = c("Annual","Annual","Annual","Annual","Annual","Annual","Annual","Annual","Annual","Annual","Annual","Perennial","Perennial","Perennial","Annual","Annual","Annual","Annual","Annual","Perennial"))
+```
+
+```{r}
+data_SJV <- group_data%>%filter(str_detect(County,"Merced|Kern|Madera|Fresno|Kings|Tulare|Stanislaus|San Joaquin"))%>%group_by(Group_name,Year)%>%mutate(Land=sum(Acres)/1000)%>%slice(1)%>%ungroup()
+data_SJV$Year <- as.numeric(data_SJV$Year)
+# Annual and perennials
+# data_SJV <- data_SJV%>%left_join(Type,by="Group_name")%>%select(Year,Group_name,Land,Type)
+# data_SJV <- data_SJV%>%group_by(Type,Year)%>%mutate(sumtype=sum(Land))
+```
+
+```{r}
+aa <- as.vector(wes_palette("Darjeeling1",n=5))
+mypal <- colorRampPalette(aa)
+```
+
+
+```{r}
+p1 <- ggplot(data_SJV%>%filter(Year>=1990),aes(x=Year,y=Land,colour=str_wrap(Group_name,20)))+geom_rect(data=df,aes(NULL,NULL,xmin=start-0.5,xmax=end+0.5,ymin=0,ymax=1800,alpha=0,fill = "Dry or \n Critically Dry"),colour=NA,alpha=0.3)+geom_line(size=1.3,aes(linetype=Group_name))+labs(y="Thousand Acres \n",colour="Crop Group",title="San Joaquin Valley Land Use \n",fill="Basin Hydrologic \n Condition",x="\n Year")+ scale_x_continuous(breaks=seq(1990,2019,by=1),expand = expansion(mult = c(0,0))) + scale_y_continuous(breaks=seq(0,1800,by=200),label=unit_format(unit="",sep = ""),expand = expansion(mult = c(0,0)))+ scale_colour_brewer(palette="Dark2")+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),plot.caption = element_text(hjust = 0),legend.position="bottom",plot.margin=unit(c(0.1,6,0.1,0.1),"cm"))+guides(colour=FALSE,linetype=FALSE)+geom_text_repel(data = filter(data_SJV, Year == 2019),aes(label = str_wrap(Group_name,20),x=Year,y=Land),nudge_y=1,nudge_x = 2,xlim = c(0, 2050),fontface='bold')+coord_cartesian(clip = "off")
+p1
+```
+
+
+```{r}
+df2 <- data.frame(name = c("Dry & Critical Dry","Dry & Critical Dry","Dry & Critical Dry","Dry & Critical Dry","Dry & Critical Dry","Dry & Critical Dry"),
+                   start = c(1990,1994,2001,2004,2007,2012),
+                   end = c(1992,1994,2002,2004,2008,2016))%>%mutate(median_x = start + floor((end-start)/2))
+                          
+colors <- c("coral2","coral2","coral2","coral2","coral2","coral2")                
+```
+
+```{r}
+group_data2$Acres <- as.numeric(group_data2$Acres)
+data_SAC <- group_data2%>%filter(str_detect(County,"Butte|Glenn|Yuba|Sutter|Yolo|Colusa|Tehama|Yolo|Solano|Sacramento"))%>%group_by(Group_name,Year)%>%mutate(Land=sum(Acres)/1000)%>%slice(1)%>%ungroup()
+# data_SJV <- group_data%>%filter(str_detect(County,"Merced|Kern|Madera|Fresno|Kings|Tulare|Stanislaus|San Joaquin|Shasta|Tehama|Glenn|Butte|Colusa|Sacramento|Solano|Sutter|Yolo|Placer|Yuba"))%>%group_by(Group_name,Year)%>%mutate(Land=sum(Acres)/1000)%>%slice(1)%>%ungroup()
+data_SAC$Year <- as.numeric(data_SAC$Year)
+```
+
+
+```{r}
+p2 <- ggplot(data_SAC%>%filter(Year>=1990),aes(x=Year,y=Land,colour=str_wrap(Group_name,20)))+geom_rect(data=df2,aes(NULL,NULL,xmin=start-0.5,xmax=end+0.5,ymin=0,ymax=600,alpha=0,fill = "Dry or \n Critically Dry"),colour=NA,alpha=0.3)+geom_line(size=1.3,aes(linetype=Group_name))+labs(y="Thousand Acres \n",colour="Crop Group",title="Sacramento Valley Land Use \n",fill="Basin Hydrologic \n Condition",x="\n Year")+ scale_x_continuous(breaks=seq(1990,2019,by=1),expand = expansion(mult = c(0,0))) + scale_y_continuous(breaks=seq(0,600,by=200),label=unit_format(unit="",sep = ""),expand = expansion(mult = c(0,0)))+ scale_colour_brewer(palette="Dark2")+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),plot.caption = element_text(hjust = 0),legend.position="bottom",plot.margin=unit(c(0.1,6,0.1,0.1),"cm"))+guides(colour=FALSE,linetype=FALSE)+geom_text_repel(data = filter(data_SAC, Year == 2019),aes(label = str_wrap(Group_name,20),x=Year,y=Land),nudge_y=1,nudge_x = 1.5,xlim = c(0, 2050),fontface='bold')+coord_cartesian(clip = "off")
+
+```
+
